@@ -119,14 +119,27 @@ class _HomeState extends State<Home> {
               padding: const EdgeInsets.symmetric(horizontal: 20, vertical: 12),
             ),
             onPressed: () {
-              setState(() {
-                busStopsFuture = iett.getLineStops(busCodeController.text,
-                    directionController.text == "departure" ? "G" : "D");
+              final directionCode =
+                  directionController.text == "departure" ? "G" : "D";
+              final stopsFuture =
+                  iett.getLineStops(busCodeController.text, directionCode);
+              final locationsFuture =
+                  iett.getBusLocations(busCodeController.text, directionCode);
 
-                busLocationsFuture = iett.getBusLocations(
-                    busCodeController.text,
-                    directionController.text == "departure" ? "G" : "D");
+              setState(() {
+                busStopsFuture = stopsFuture;
+                busLocationsFuture = locationsFuture;
               });
+
+              stopsFuture.then(
+                (stops) {
+                  if (!mounted || busStopsFuture != stopsFuture) return;
+                  _focusMapOnBusStops(stops);
+                },
+                onError: (error) {
+                  debugPrint('Unable to zoom to bus line: $error');
+                },
+              );
               Navigator.pop(context);
             },
             child: const Text("Select"),
@@ -171,6 +184,36 @@ class _HomeState extends State<Home> {
     }
   }
 
+  void _focusMapOnBusStops(List<List<dynamic>> stops) {
+    final points = <LatLng>[];
+
+    for (final stop in stops) {
+      if (stop.length < 3) continue;
+      final lat = double.tryParse(stop[1].toString());
+      final lon = double.tryParse(stop[2].toString());
+      if (lat == null || lon == null) continue;
+      points.add(LatLng(lat, lon));
+    }
+
+    if (points.isEmpty) {
+      return;
+    }
+
+    if (points.length == 1) {
+      mapController.move(points.first, 15);
+      return;
+    }
+
+    final bounds = LatLngBounds.fromPoints(points);
+
+    mapController.fitCamera(
+      CameraFit.bounds(
+        bounds: bounds,
+        padding: const EdgeInsets.all(40),
+      ),
+    );
+  }
+
   @override
   Widget build(BuildContext context) {
     if (currentLocation == null) {
@@ -207,7 +250,8 @@ class _HomeState extends State<Home> {
             ),
             children: [
               TileLayer(
-                urlTemplate: "https://tile.openstreetmap.org/{z}/{x}/{y}.png",
+                urlTemplate:
+                    "https://{s}.basemaps.cartocdn.com/rastertiles/voyager/{z}/{x}/{y}.png",
               ),
               MarkerLayer(
                 markers: [
